@@ -7,7 +7,7 @@ import re
 
 # 1. URL du site cible et nom de votre fichier JSON
 url = "https://gamewave.fr/monopoly-go/monopoly-go-liens-des-lancers-de-de-et-d-argent-gratuits/"
-filename = "scrapdominodreams.json"
+filename = "scrapmonopolygo.json"
 
 # --- CHARGEMENT DE L'HISTORIQUE PRÉCÉDENT ---
 # On crée un dictionnaire indexé par l'URL pour retrouver instantanément les données déjà scrapées
