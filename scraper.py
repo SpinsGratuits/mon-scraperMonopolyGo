@@ -11,7 +11,7 @@ url_principale = "https://infinity-area.com/jeux/monopoly-go"
 base_site = "https://infinity-area.com"
 filename = "scrapmonopolygo.json"
 
-# Dictionnaire de traduction des mois (français vers numérique)
+# Traduction française complète pour la reconstruction des objets Date
 mois_fr_to_num = {
     "janvier": "01", "février": "02", "mars": "03", "avril": "04", "mai": "05", "juin": "06",
     "juillet": "07", "août": "08", "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12"
@@ -40,10 +40,10 @@ if os.path.exists(filename):
     except Exception as e:
         print(f"[Attention] Impossible de lire l'historique JSON : {e}")
 
-# Client de contournement Cloudflare
+# Client anti-bot Cloudflare
 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
-print("[1/2] Analyse de la page d'accueil d'Infinity Area...")
+print("[1/2] Analyse globale de la page d'accueil d'Infinity Area...")
 try:
     response = scraper.get(url_principale, timeout=15)
     status_code = response.status_code
@@ -59,21 +59,18 @@ liens_visites_session = set()
 if status_code == 200:
     soup = BeautifulSoup(html_text, "html.parser")
     
-    # ÉTAPE 1 : Identification de tous les articles contenant les dés quotidiens
+    # ÉTAPE 1 : Identification de tous les liens d'articles sur la page
     articles_du_jour = []
     for link in soup.find_all("a", href=True):
         href_article = link["href"].strip()
-        texte_article = link.get_text().strip().lower()
         
-        # CORRECTION : Ciblage élargi aux structures d'URL réelles (/article/...)
-        if "des-gratuits-monopoly-go" in href_article or "des-gratuits" in texte_article:
+        # Vérification si le lien correspond bien à un article (contient /article/)
+        if "/article/" in href_article and "lancers-de-des-gratuits" in href_article:
             if href_article.startswith("/"):
                 href_article = base_site + href_article
-            elif not href_article.startswith("http"):
-                continue
                 
-            # Extraction propre de la date (Ex: du-1-octobre-2026)
-            match_date = re.search(r'(\d{1,2})\s*[-_\s]\s*([a-zæœéûou]+)\s*[-_\s]\s*(\d{4})', texte_article + href_article)
+            # Extraction de la date depuis l'URL de l'article (ex: ...du-1-octobre-2026)
+            match_date = re.search(r'du-(\d{1,2})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
             if match_date:
                 jour = match_date.group(1).zfill(2)
                 nom_mois = match_date.group(2)
@@ -84,30 +81,30 @@ if status_code == 200:
                 
                 try:
                     date_objet = datetime.strptime(date_article_str, "%d/%m/%Y")
-                    # On évite les doublons d'articles dans notre liste de parcours
+                    # Ajout de l'article s'il est récent et non dupliqué
                     if date_objet >= limite_conservation and href_article not in [a[0] for a in articles_du_jour]:
                         articles_du_jour.append((href_article, date_article_str))
                 except:
                     pass
 
-    # ÉTAPE 2 : Parcours profond des sous-pages collectées
-    print(f"[2/2] {len(articles_du_jour)} pages d'articles valides repérées. Extraction des liens de dés...")
+    # ÉTAPE 2 : Extraction en profondeur des liens de récompense
+    print(f"[2/2] {len(articles_du_jour)} articles valides localisés. Extraction des liens profonds...")
     
     for url_article, date_parution_str in articles_du_jour:
         try:
-            print(f" -> Récupération de l'article : {url_article}")
+            print(f" -> Ouverture de l'article : {url_article}")
             res_article = scraper.get(url_article, timeout=10)
             if res_article.status_code != 200:
                 continue
                 
-            # Analyse complète de la page de l'article
             soup_article = BeautifulSoup(res_article.text, "html.parser")
             
-            for link_dd in soup_article.find_all("a", href=True):
-                href_de = link_dd["href"].strip()
+            # Recherche de tous les liens hypertextes sortants de l'article
+            for link_de in soup_article.find_all("a", href=True):
+                href_de = link_de["href"].strip()
                 
-                # Validation des domaines officiels ou raccourcis autorisés
-                keywords = ["scope.ly", "monopolygo", "adj.st", "t.co", "bit.ly"]
+                # Mots-clés de redirection officiels Monopoly Go
+                keywords = ["scope.ly", "monopolygo", "adj.st", "mply.io", "t.co", "bit.ly"]
                 if any(key in href_de.lower() for key in keywords):
                     
                     if href_de in liens_visites_session:
@@ -133,7 +130,7 @@ if status_code == 200:
                             "date_scraping1": anciens_liens[href_de].get("date_scraping1", f"{date_parution_str} @ {heure_actuelle_str}"),
                             "date": date_parution_str,  
                             "heure": anciens_liens[href_de].get("heure", "00:00"),
-                            "recompense": anciens_liens[href].get("recompense", type_recompense) if href_de in anciens_liens else type_recompense, 
+                            "recompense": anciens_liens[href_de].get("recompense", type_recompense), 
                             "lienurl": href_de,
                             "badge": badge_actuel
                         })
@@ -150,17 +147,17 @@ if status_code == 200:
                             "badge": "NEW" 
                         })
             
-            # Temporisation anti-bannissement (1 seconde)
+            # Pause de politesse d'une seconde pour éviter les blocages pare-feu
             time.sleep(1)
             
         except Exception as e:
-            print(f"[Erreur] Problème sur la page {url_article} : {e}")
+            print(f"[Erreur] Échec de l'analyse profonde sur {url_article} : {e}")
 
-    # Fallback de secours si l'accès réseau échoue pendant le crawling
+    # Sécurité Fallback : Conserver l'historique propre si le site n'a rien renvoyé
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
-    # --- 4. TRI CHRONOLOGIQUE PAR DATE DE PARUTION ---
+    # --- 4. TRI CHRONOLOGIQUE ---
     def extraire_cle_parution(item):
         try:
             return datetime.strptime(item.get("date", ""), "%d/%m/%Y").timestamp()
@@ -169,11 +166,11 @@ if status_code == 200:
 
     json_data.sort(key=extraire_cle_parution, reverse=True)
 
-    # --- 5. ENREGISTREMENT EN FICHIER JSON ---
+    # --- 5. ENREGISTREMENT ---
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens indexés chronologiquement).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} synchronisé avec succès ({len(json_data)} liens indexés).")
             
 else:
-    print(f"[Erreur] Échec d'accès à la page racine (Code {status_code}).")
+    print(f"[Erreur] Échec de la communication réseau (Code {status_code}).")
