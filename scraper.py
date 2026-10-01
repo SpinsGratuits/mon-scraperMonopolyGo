@@ -7,7 +7,7 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURATION ---
-url_principale = "https://infinity-area.com/jeux/monopoly-go"
+url_principale = "https://infinity-area.com"
 base_site = "https://infinity-area.com"
 filename = "scrapmonopolygo.json"
 
@@ -70,6 +70,7 @@ if status_code == 200:
                 href_article = base_site + href_article
                 
             # Extraction de la date depuis l'URL de l'article (ex: ...du-1-octobre-2026)
+            match_date = re.search(r'du-(\d{1,2trace})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
             match_date = re.search(r'du-(\d{1,2})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
             if match_date:
                 jour = match_date.group(1).zfill(2)
@@ -82,7 +83,7 @@ if status_code == 200:
                 try:
                     date_objet = datetime.strptime(date_article_str, "%d/%m/%Y")
                     # Ajout de l'article s'il est récent et non dupliqué
-                    if date_objet >= limite_conservation and href_article not in [a[0] for a in articles_du_jour]:
+                    if date_objet >= limite_conservation and href_article not in [a for a in articles_du_jour]:
                         articles_du_jour.append((href_article, date_article_str))
                 except:
                     pass
@@ -102,6 +103,10 @@ if status_code == 200:
             # Recherche de tous les liens hypertextes sortants de l'article
             for link_de in soup_article.find_all("a", href=True):
                 href_de = link_de["href"].strip()
+                
+                # SÉCURITÉ COMPLÉMENTAIRE : On exclut immédiatement si 'reddit' est dans l'URL
+                if "reddit" in href_de.lower():
+                    continue
                 
                 # Mots-clés de redirection officiels Monopoly Go
                 keywords = ["scope.ly", "monopolygo", "adj.st", "mply.io", "t.co", "bit.ly"]
