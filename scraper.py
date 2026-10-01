@@ -1,28 +1,18 @@
 import json
 import os
 import re
-import time
 from datetime import datetime, timedelta
 import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURATION ---
-url_principale = "https://infinity-area.com"
-base_site = "https://infinity-area.com"
+url = "https://mosttechs.com/monopoly-go-free-dice/"
 filename = "scrapmonopolygo.json"
-
-# Traduction française complète pour la reconstruction des objets Date
-mois_fr_to_num = {
-    "janvier": "01", "février": "02", "mars": "03", "avril": "04", "mai": "05", "juin": "06",
-    "juillet": "07", "août": "08", "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12"
-}
 
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
-
-# MODIFICATION ICI : Conservation de l'historique sur 15 jours glissants maximum
-limite_conservation = now - timedelta(days=15)
+limite_conservation = now - timedelta(days=6)
 
 # --- 2. CHARGEMENT & NETTOYAGE DE L'HISTORIQUE ---
 anciens_liens = {}
@@ -45,9 +35,8 @@ if os.path.exists(filename):
 # Client anti-bot Cloudflare
 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
-print("[1/2] Analyse globale de la page d'accueil d'Infinity Area...")
 try:
-    response = scraper.get(url_principale, timeout=15)
+    response = scraper.get(url, timeout=15)
     status_code = response.status_code
     html_text = response.text
 except Exception as e:
@@ -55,117 +44,95 @@ except Exception as e:
     html_text = ""
     print(f"[Erreur] Connexion impossible : {e}")
 
-json_data = []
-liens_visites_session = set()
-
 if status_code == 200:
     soup = BeautifulSoup(html_text, "html.parser")
+    json_data = []
+    liens_visites_session = set()  # Optimisation de recherche anti-doublon
     
-    # ÉTAPE 1 : Identification de tous les liens d'articles sur la page
-    articles_du_jour = []
-    for link in soup.find_all("a", href=True):
-        href_article = link["href"].strip()
+    entry_content = soup.find(class_="entry-content")
+    if not entry_content:
+        entry_content = soup
         
-        if "/article/" in href_article and "lancers-de-des-gratuits" in href_article:
-            if href_article.startswith("/"):
-                href_article = base_site + href_article
-                
-            match_date = re.search(r'du-(\d{1,2})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
-            if match_date:
-                jour = match_date.group(1).zfill(2)
-                nom_mois = match_date.group(2)
-                annee = match_date.group(3)
-                
-                num_mois = mois_fr_to_num.get(nom_mois, "01")
-                date_article_str = f"{jour}/{num_mois}/{annee}"
-                
-                try:
-                    date_objet = datetime.strptime(date_article_str, "%d/%m/%Y")
-                    # L'article est validé s'il rentre dans la fenêtre des 15 jours
-                    if date_objet >= limite_conservation and href_article not in [a for a, _ in articles_du_jour]:
-                        articles_du_jour.append((href_article, date_article_str))
-                except:
-                    pass
-
-    # ÉTAPE 2 : Extraction en profondeur des liens de récompense
-    print(f"[2/2] {len(articles_du_jour)} articles récents valides localisés. Extraction des liens profonds...")
-    
-    for url_article, date_parution_str in articles_du_jour:
-        try:
-            print(f" -> Ouverture de l'article : {url_article}")
-            res_article = scraper.get(url_article, timeout=10)
-            if res_article.status_code != 200:
+    # --- 3. PARCOURS CHRONOLOGIQUE DES LIGNES ---
+    for element in entry_content.find_all(["p", "li"]):
+        links = element.find_all("a", href=True)
+        
+        if not links:
+            continue
+            
+        text_ligne = element.get_text().strip().lower()
+        
+        # REGEX MONOPOLY GO : Recherche d'une date au format DD.M.YYYY ou D.M.YYYY dans la ligne
+        match_date = re.search(r'(\d{1,2})[\s./](\d{1,2})[\s./](\d{4})', text_ligne)
+        
+        if match_date:
+            jour = match_date.group(1).zfill(2)
+            mois = match_date.group(2).zfill(2)
+            annee = match_date.group(3)
+            current_date_str = f"{jour}/{mois}/{annee}"
+        else:
+            current_date_str = now.strftime("%d/%m/%Y")
+            
+        for link in links:
+            href = link["href"].strip()
+            
+            # Filtres d'exclusions standards
+            if href.startswith("/") or "t.me" in href.lower() or "telegram.me" in href.lower():
+                continue
+            if any(p in href.lower() for p in ["twitter.com", "facebook.com", "whatsapp", "pinterest", "reddit.com"]):
                 continue
                 
-            soup_article = BeautifulSoup(res_article.text, "html.parser")
-            
-            for link_de in soup_article.find_all("a", href=True):
-                href_de = link_de["href"].strip()
+            # Mots-clés de redirection Monopoly Go
+            keywords = ["scope.ly", "monopolygo", "adj.st", "t.co", "bit.ly"]
+            if any(key in href.lower() for key in keywords):
                 
-                if "reddit" in href_de.lower():
+                try:
+                    date_objet = datetime.strptime(current_date_str, "%d/%m/%Y")
+                    if date_objet < limite_conservation:
+                        continue  
+                except:
+                    pass
+                
+                if href in liens_visites_session:
                     continue
+                liens_visites_session.add(href)
                 
-                keywords = ["scope.ly", "monopolygo", "adj.st", "mply.io", "t.co", "bit.ly"]
-                if any(key in href_de.lower() for key in keywords):
+                type_recompense = "Dés gratuits"
+                
+                # --- STRATÉGIE DE RECONSTITUTION ET CONSERVATION DU BADGE NEW (6 HEURES) ---
+                if href in anciens_liens:
+                    date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
+                    badge_actuel = ""
                     
-                    if href_de in liens_visites_session:
-                        continue
-                    liens_visites_session.add(href_de)
-                    
-                    type_recompense = "Dés gratuits"
-                    
-                    # --- STRATÉGIE DE RECONSTITUTION : PRIORITÉ AU PLUS RÉCENT ---
-                    if href_de in anciens_liens:
-                        try:
-                            ancienne_date = datetime.strptime(anciens_liens[href_de].get("date", ""), "%d/%m/%Y")
-                            nouvelle_date = datetime.strptime(date_parution_str, "%d/%m/%Y")
-                            
-                            if nouvelle_date > ancienne_date:
-                                date_scraping_finale = date_now_str
-                                date_scraping1_finale = f"{date_parution_str} @ {heure_actuelle_str}"
-                                date_finale = date_parution_str
-                                heure_finale = heure_actuelle_str
-                                badge_actuel = "NEW"
-                            else:
-                                date_scraping_finale = anciens_liens[href_de].get("date_scraping", date_now_str)
-                                date_scraping1_finale = anciens_liens[href_de].get("date_scraping1", f"{date_parution_str} @ {heure_actuelle_str}")
-                                date_finale = anciens_liens[href_de].get("date", date_parution_str)
-                                heure_finale = anciens_liens[href_de].get("heure", "00:00")
-                                
-                                date_premier_scraping = datetime.strptime(date_scraping_finale, "%d/%m/%Y @ %H:%M")
-                                badge_actuel = "NEW" if now - date_premier_scraping < timedelta(hours=6) else ""
-                        except:
-                            date_scraping_finale = anciens_liens[href_de].get("date_scraping", date_now_str)
-                            date_scraping1_finale = anciens_liens[href_de].get("date_scraping1", f"{date_parution_str} @ {heure_actuelle_str}")
-                            date_finale = date_parution_str
-                            heure_finale = anciens_liens[href_de].get("heure", "00:00")
-                            badge_actuel = anciens_liens[href_de].get("badge", "")
+                    try:
+                        date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
+                        # Conserver le badge si le lien a été enregistré il y a moins de 6 heures
+                        if now - date_premier_scraping < timedelta(hours=6):
+                            badge_actuel = "NEW"
+                    except:
+                        badge_actuel = anciens_liens[href].get("badge", "")
 
-                        json_data.append({
-                            "date_scraping": date_scraping_finale, 
-                            "date_scraping1": date_scraping1_finale,
-                            "date": date_finale,  
-                            "heure": heure_finale,
-                            "recompense": anciens_liens[href_de].get("recompense", type_recompense), 
-                            "lienurl": href_de,
-                            "badge": badge_actuel
-                        })
-                    else:
-                        date_scraping1_combinee = f"{date_parution_str} @ {heure_actuelle_str}"
-                        json_data.append({
-                            "date_scraping": date_now_str, 
-                            "date_scraping1": date_scraping1_combinee,
-                            "date": date_parution_str,  
-                            "heure": heure_actuelle_str,
-                            "recompense": type_recompense, 
-                            "lienurl": href_de,
-                            "badge": "NEW" 
-                        })
-            
-            time.sleep(1)
-            
-        except Exception as e:
-            print(f"[Erreur] Échec de l'analyse profonde sur {url_article} : {e}")
+                    json_data.append({
+                        "date_scraping": date_premier_scraping_str, 
+                        "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
+                        "date": current_date_str,  
+                        "heure": anciens_liens[href].get("heure", "00:00"),
+                        "recompense": anciens_liens[href].get("recompense", type_recompense), 
+                        "lienurl": href,
+                        "badge": badge_actuel
+                    })
+                else:
+                    # Nouveau lien trouvé lors du cycle de scraping actuel
+                    date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
+                    json_data.append({
+                        "date_scraping": date_now_str, 
+                        "date_scraping1": date_scraping1_combinee,
+                        "date": current_date_str,  
+                        "heure": heure_actuelle_str,
+                        "recompense": type_recompense, 
+                        "lienurl": href,
+                        "badge": "NEW" 
+                    })
 
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
@@ -183,7 +150,8 @@ if status_code == 200:
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} synchronisé avec succès ({len(json_data)} liens valides indexés sur 15 jours).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens valides).")
             
 else:
-    print(f"[Erreur] Échec de la communication réseau (Code {status_code}).")
+    print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
+    
