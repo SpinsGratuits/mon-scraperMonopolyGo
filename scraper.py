@@ -7,7 +7,7 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURATION ---
-url_principale = "https://infinity-area.com"
+url_principale = "https://infinity-area.com/jeux/monopoly-go"
 base_site = "https://infinity-area.com"
 filename = "scrapmonopolygo.json"
 
@@ -69,8 +69,7 @@ if status_code == 200:
             if href_article.startswith("/"):
                 href_article = base_site + href_article
                 
-            # Extraction de la date depuis l'URL de l'article (ex: ...du-1-octobre-2026)
-            match_date = re.search(r'du-(\d{1,2trace})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
+            # CORRECTION DE LA REGEX : Nettoyage du "1,2trace" accidentel pour restaurer le scan historique
             match_date = re.search(r'du-(\d{1,2})-([a-zæœéûou‡]+)-(\d{4})', href_article.lower())
             if match_date:
                 jour = match_date.group(1).zfill(2)
@@ -83,13 +82,13 @@ if status_code == 200:
                 try:
                     date_objet = datetime.strptime(date_article_str, "%d/%m/%Y")
                     # Ajout de l'article s'il est récent et non dupliqué
-                    if date_objet >= limite_conservation and href_article not in [a for a in articles_du_jour]:
+                    if date_objet >= limite_conservation and href_article not in [a for a, _ in articles_du_jour]:
                         articles_du_jour.append((href_article, date_article_str))
                 except:
                     pass
 
     # ÉTAPE 2 : Extraction en profondeur des liens de récompense
-    print(f"[2/2] {len(articles_du_jour)} articles valides localisés. Extraction des liens profonds...")
+    print(f"[2/2] {len(articles_du_jour)} articles récents valides localisés. Extraction des liens profonds...")
     
     for url_article, date_parution_str in articles_du_jour:
         try:
@@ -104,7 +103,7 @@ if status_code == 200:
             for link_de in soup_article.find_all("a", href=True):
                 href_de = link_de["href"].strip()
                 
-                # SÉCURITÉ COMPLÉMENTAIRE : On exclut immédiatement si 'reddit' est dans l'URL
+                # Exclusion stricte des liens Reddit
                 if "reddit" in href_de.lower():
                     continue
                 
@@ -152,13 +151,13 @@ if status_code == 200:
                             "badge": "NEW" 
                         })
             
-            # Pause de politesse d'une seconde pour éviter les blocages pare-feu
+            # Pause de politesse d'une seconde pour préserver le serveur
             time.sleep(1)
             
         except Exception as e:
             print(f"[Erreur] Échec de l'analyse profonde sur {url_article} : {e}")
 
-    # Sécurité Fallback : Conserver l'historique propre si le site n'a rien renvoyé
+    # Sécurité Fallback : Conserver l'historique propre si le site n'a temporairement rien renvoyé
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
@@ -175,7 +174,7 @@ if status_code == 200:
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} synchronisé avec succès ({len(json_data)} liens indexés).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} synchronisé avec succès ({len(json_data)} liens valides indexés).")
             
 else:
     print(f"[Erreur] Échec de la communication réseau (Code {status_code}).")
