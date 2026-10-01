@@ -6,13 +6,31 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURATION ---
-url = "https://mosttechs.com/monopoly-go-free-dice/"
-filename = "scrapmonopolygo.json"
+url = "https://mosttechs.com/how-to-get-credits-in-bingo-blitz/"
+filename = "scrapbingoblitz.json"
+
+# Dictionnaire complet incluant toutes les variantes et abréviations de mois
+mois_en_to_num = {
+    "january": "01", "jan": "01", "januray": "01",
+    "february": "02", "feb": "02", "february ": "02",
+    "march": "03", "mar": "03",
+    "april": "04", "apr": "04",
+    "may": "05",
+    "june": "06", "jun": "06",
+    "july": "07", "jul": "07",
+    "august": "08", "aug": "08", "augest": "08",
+    "september": "09", "sep": "09",
+    "october": "10", "oct": "10",
+    "november": "11", "nov": "11",
+    "december": "12", "dec": "12"
+}
 
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
-limite_conservation = now - timedelta(days=6)
+
+# MODIFICATION : Extension de la conservation de l'historique à 15 jours glissants
+limite_conservation = now - timedelta(days=15)
 
 # --- 2. CHARGEMENT & NETTOYAGE DE L'HISTORIQUE ---
 anciens_liens = {}
@@ -25,6 +43,7 @@ if os.path.exists(filename):
                     if "lienurl" in item:
                         try:
                             date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
+                            # Filtrage basé sur le nouveau seuil des 15 jours
                             if date_objet >= limite_conservation:
                                 anciens_liens[item["lienurl"]] = item
                         except:
@@ -32,7 +51,7 @@ if os.path.exists(filename):
     except Exception as e:
         print(f"[Attention] Impossible de lire l'historique JSON : {e}")
 
-# Client anti-bot Cloudflare
+# Client de contournement anti-bot Cloudflare
 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
 try:
@@ -53,37 +72,33 @@ if status_code == 200:
     if not entry_content:
         entry_content = soup
         
-    # --- 3. PARCOURS CHRONOLOGIQUE DES LIGNES ---
-    for element in entry_content.find_all(["p", "li"]):
-        links = element.find_all("a", href=True)
+    # --- 3. PARCOURS DE LA STRUCTURE TEXTUELLE ---
+    current_date_str = now.strftime("%d/%m/%Y")  # Valeur par défaut
+    
+    for element in entry_content.find_all(["p", "ul", "ol", "strong"]):
+        text = element.get_text().strip().lower()
         
-        if not links:
-            continue
-            
-        text_ligne = element.get_text().strip().lower()
-        
-        # REGEX MONOPOLY GO : Recherche d'une date au format DD.M.YYYY ou D.M.YYYY dans la ligne
-        match_date = re.search(r'(\d{1,2})[\s./](\d{1,2})[\s./](\d{4})', text_ligne)
-        
+        # Détection d'une ligne de date isolée
+        match_date = re.search(r'(\d{1,2})\s+([a-z]{3,})\s+(\d{4})', text)
         if match_date:
             jour = match_date.group(1).zfill(2)
-            mois = match_date.group(2).zfill(2)
+            nom_mois = match_date.group(2)
             annee = match_date.group(3)
-            current_date_str = f"{jour}/{mois}/{annee}"
-        else:
-            current_date_str = now.strftime("%d/%m/%Y")
+                
+            num_mois = mois_en_to_num.get(nom_mois, "01")
+            current_date_str = f"{jour}/{num_mois}/{annee}"
+            continue  
             
+        links = element.find_all("a", href=True)
         for link in links:
             href = link["href"].strip()
             
-            # Filtres d'exclusions standards
             if href.startswith("/") or "t.me" in href.lower() or "telegram.me" in href.lower():
                 continue
             if any(p in href.lower() for p in ["twitter.com", "facebook.com", "whatsapp", "pinterest", "reddit.com"]):
                 continue
                 
-            # Mots-clés de redirection Monopoly Go
-            keywords = ["scope.ly", "monopolygo", "adj.st", "t.co", "bit.ly"]
+            keywords = ["bingoblitz", "playtika", "t.co", "bit.ly"]
             if any(key in href.lower() for key in keywords):
                 
                 try:
@@ -97,32 +112,49 @@ if status_code == 200:
                     continue
                 liens_visites_session.add(href)
                 
-                type_recompense = "Dés gratuits"
+                type_recompense = "Credits gratuits"
                 
-                # --- STRATÉGIE DE RECONSTITUTION ET CONSERVATION DU BADGE NEW (6 HEURES) ---
+                # --- STRATÉGIE DE RECONSTITUTION : PRIORITÉ AU PLUS RÉCENT ---
                 if href in anciens_liens:
-                    date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
-                    badge_actuel = ""
-                    
                     try:
-                        date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
-                        # Conserver le badge si le lien a été enregistré il y a moins de 6 heures
-                        if now - date_premier_scraping < timedelta(hours=6):
+                        ancienne_date = datetime.strptime(anciens_liens[href].get("date", ""), "%d/%m/%Y")
+                        nouvelle_date = datetime.strptime(current_date_str, "%d/%m/%Y")
+                        
+                        # Si le site internet republie un ancien lien à une date plus récente
+                        if nouvelle_date > ancienne_date:
+                            date_scraping_finale = date_now_str
+                            date_scraping1_finale = f"{current_date_str} @ {heure_actuelle_str}"
+                            date_finale = current_date_str
+                            heure_finale = heure_actuelle_str
                             badge_actuel = "NEW"
+                        else:
+                            # Sinon, on conserve les informations de l'historique
+                            date_scraping_finale = anciens_liens[href].get("date_scraping", date_now_str)
+                            date_scraping1_finale = anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}")
+                            date_finale = anciens_liens[href].get("date", current_date_str)
+                            heure_finale = anciens_liens[href].get("heure", "00:00")
+                            
+                            # Contrôle standard des 6 heures pour le badge NEW
+                            date_premier_scraping = datetime.strptime(date_scraping_finale, "%d/%m/%Y @ %H:%M")
+                            badge_actuel = "NEW" if now - date_premier_scraping < timedelta(hours=6) else ""
                     except:
+                        date_scraping_finale = anciens_liens[href].get("date_scraping", date_now_str)
+                        date_scraping1_finale = anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}")
+                        date_finale = current_date_str
+                        heure_finale = anciens_liens[href].get("heure", "00:00")
                         badge_actuel = anciens_liens[href].get("badge", "")
 
                     json_data.append({
-                        "date_scraping": date_premier_scraping_str, 
-                        "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
-                        "date": current_date_str,  
-                        "heure": anciens_liens[href].get("heure", "00:00"),
+                        "date_scraping": date_scraping_finale, 
+                        "date_scraping1": date_scraping1_finale,
+                        "date": date_finale,  
+                        "heure": heure_finale,
                         "recompense": anciens_liens[href].get("recompense", type_recompense), 
                         "lienurl": href,
                         "badge": badge_actuel
                     })
                 else:
-                    # Nouveau lien trouvé lors du cycle de scraping actuel
+                    # VRAI NOUVEAU LIEN : Première fois qu'on le croise
                     date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
                     json_data.append({
                         "date_scraping": date_now_str, 
@@ -150,8 +182,7 @@ if status_code == 200:
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens valides).")
+    print(f"[Terminé] Fichier Bingo Blitz {filename} mis à jour ({len(json_data)} liens valides sur 15 jours).")
             
 else:
     print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
-    
