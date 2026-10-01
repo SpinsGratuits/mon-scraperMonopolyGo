@@ -9,7 +9,12 @@ from bs4 import BeautifulSoup
 url = "https://mosttechs.com/monopoly-go-free-dice/"
 filename = "scrapmonopolygo.json"
 
-# --- 2. CHARGEMENT DE L'HISTORIQUE ---
+now = datetime.now()
+date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
+heure_actuelle_str = now.strftime("%H:%M")
+limite_conservation = now - timedelta(days=6)
+
+# --- 2. CHARGEMENT & NETTOYAGE DE L'HISTORIQUE ---
 anciens_liens = {}
 if os.path.exists(filename):
     try:
@@ -18,7 +23,12 @@ if os.path.exists(filename):
             if isinstance(data_chargee, list):
                 for item in data_chargee:
                     if "lienurl" in item:
-                        anciens_liens[item["lienurl"]] = item
+                        try:
+                            date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
+                            if date_objet >= limite_conservation:
+                                anciens_liens[item["lienurl"]] = item
+                        except:
+                            anciens_liens[item["lienurl"]] = item
     except Exception as e:
         print(f"[Attention] Impossible de lire l'historique JSON : {e}")
 
@@ -36,22 +46,14 @@ except Exception as e:
 
 if status_code == 200:
     soup = BeautifulSoup(html_text, "html.parser")
-    
-    now = datetime.now()
-    date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
-    heure_actuelle_str = now.strftime("%H:%M")
-    
-    # Seuil limite à 6 jours maximum
-    limite_conservation = now - timedelta(days=6)
-    
     json_data = []
+    liens_visites_session = set()  # Optimisation de recherche anti-doublon
     
     entry_content = soup.find(class_="entry-content")
     if not entry_content:
         entry_content = soup
         
-    # 3. PARCOURS CHRONOLOGIQUE DES LIGNES (Extraction de la date en fin de ligne)
-    # On cherche tous les blocs susceptibles de contenir un lien de dés
+    # --- 3. PARCOURS CHRONOLOGIQUE DES LIGNES ---
     for element in entry_content.find_all(["p", "li"]):
         links = element.find_all("a", href=True)
         
@@ -60,7 +62,7 @@ if status_code == 200:
             
         text_ligne = element.get_text().strip().lower()
         
-        # REGEX SPÉCIFIQUE MONOPOLY GO : Cherche une date numérique de type DD.M.YYYY ou D.M.YYYY à la fin du texte
+        # REGEX MONOPOLY GO : Recherche d'une date au format DD.M.YYYY ou D.M.YYYY dans la ligne
         match_date = re.search(r'(\d{1,2})[\s./](\d{1,2})[\s./](\d{4})', text_ligne)
         
         if match_date:
@@ -69,7 +71,6 @@ if status_code == 200:
             annee = match_date.group(3)
             current_date_str = f"{jour}/{mois}/{annee}"
         else:
-            # Date de secours si la ligne n'a pas de date lisible
             current_date_str = now.strftime("%d/%m/%Y")
             
         for link in links:
@@ -81,38 +82,47 @@ if status_code == 200:
             if any(p in href.lower() for p in ["twitter.com", "facebook.com", "whatsapp", "pinterest", "reddit.com"]):
                 continue
                 
-            # Mots-clés de redirection Monopoly Go (Inclusion de adj.st)
+            # Mots-clés de redirection Monopoly Go
             keywords = ["scope.ly", "monopolygo", "adj.st", "t.co", "bit.ly"]
             if any(key in href.lower() for key in keywords):
                 
-                # Validation du nettoyage automatique à 6 jours
                 try:
                     date_objet = datetime.strptime(current_date_str, "%d/%m/%Y")
                     if date_objet < limite_conservation:
-                        continue  # Plus vieux de 6 jours, on ignore
+                        continue  
                 except:
                     pass
                 
-                # Éviter les doublons de session
-                if any(item["lienurl"] == href for item in json_data):
+                if href in liens_visites_session:
                     continue
+                liens_visites_session.add(href)
                 
                 type_recompense = "Dés gratuits"
                 
-                # --- STRATÉGIE DE RECONSTITUTION AVEC GEL DE L'HISTORIQUE ---
+                # --- STRATÉGIE DE RECONSTITUTION ET CONSERVATION DU BADGE NEW (6 HEURES) ---
                 if href in anciens_liens:
-                    # ANCIEN LIEN : On conserve l'ancienne heure de découverte originale sans modification
+                    date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
+                    badge_actuel = ""
+                    
+                    try:
+                        date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
+                        # Conserver le badge si le lien a été enregistré il y a moins de 6 heures
+                        if now - date_premier_scraping < timedelta(hours=6):
+                            badge_actuel = "NEW"
+                    except:
+                        badge_actuel = anciens_liens[href].get("badge", "")
+
                     json_data.append({
-                        "date_scraping": anciens_liens[href].get("date_scraping", date_now_str), 
+                        "date_scraping": date_premier_scraping_str, 
                         "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
                         "date": current_date_str,  
                         "heure": anciens_liens[href].get("heure", "00:00"),
                         "recompense": anciens_liens[href].get("recompense", type_recompense), 
                         "lienurl": href,
-                        "badge": "" 
+                        "badge": badge_actuel
                     })
                 else:
-                    # NOUVEAU LIEN : Calcul initial combinant la date extraite de la ligne et l'heure du robot
+                    # Nouveau lien trouvé lors du cycle de scraping actuel
                     date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
                     json_data.append({
                         "date_scraping": date_now_str, 
@@ -124,15 +134,13 @@ if status_code == 200:
                         "badge": "NEW" 
                     })
 
-    # Sauvegarde de secours
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
-    # --- 4. TRI CHRONOLOGIQUE DES DATES DE PARUTION (Du plus récent au plus ancien) ---
+    # --- 4. TRI CHRONOLOGIQUE PAR DATE DE PARUTION ---
     def extraire_cle_parution(item):
         try:
-            date_part = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
-            return date_part.timestamp()
+            return datetime.strptime(item.get("date", ""), "%d/%m/%Y").timestamp()
         except:
             return 0
 
@@ -142,7 +150,7 @@ if status_code == 200:
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} généré avec succès ({len(json_data)} liens classés chronologiquement).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens valides).")
             
 else:
     print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
