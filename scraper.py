@@ -4,9 +4,11 @@ import re
 from datetime import datetime, timedelta
 import cloudscraper
 from bs4 import BeautifulSoup
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # --- 1. CONFIGURATION ---
-url = "https://mosttechs.com/monopoly-go-free-dice/"
+url = "hhttps://mosttechs.com/monopoly-go-free-dice/"
 filename = "scrapmonopolygo.json"
 
 now = datetime.now()
@@ -15,6 +17,19 @@ heure_actuelle_str = now.strftime("%H:%M")
 
 # MODIFICATION : Passage du seuil limite de conservation à 15 jours glissants
 limite_conservation = now - timedelta(days=15)
+
+# --- 1B. INITIALISATION FIREBASE ---
+firebase_key_raw = os.environ.get('FIREBASE_KEY')
+if not firebase_key_raw:
+    raise ValueError("Le secret FIREBASE_KEY est introuvable dans l'environnement.")
+
+# Sécurité multi-script pour éviter les plantages lors d'exécutions simultanées
+if not firebase_admin._apps:
+    cred_json = json.loads(firebase_key_raw)
+    cred = credentials.Certificate(cred_json)
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # --- 2. CHARGEMENT & NETTOYAGE DE L'HISTORIQUE ---
 anciens_liens = {}
@@ -51,6 +66,7 @@ if status_code == 200:
     soup = BeautifulSoup(html_text, "html.parser")
     json_data = []
     liens_visites_session = set()  # Optimisation de recherche anti-doublon super rapide
+    nouveaux_liens_detectes = 0  # Compteur dédié au déclenchement des pushs
     
     entry_content = soup.find(class_="entry-content")
     if not entry_content:
@@ -143,7 +159,8 @@ if status_code == 200:
                         "badge": badge_actuel
                     })
                 else:
-                    # Nouveau lien trouvé pour la première fois
+                    # Nouveau lien trouvé pour la première fois lors de cette exécution
+                    nouveaux_liens_detectes += 1
                     date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
                     json_data.append({
                         "date_scraping": date_now_str, 
@@ -167,11 +184,34 @@ if status_code == 200:
 
     json_data.sort(key=extraire_cle_parution, reverse=True)
 
-    # --- 5. ENREGISTREMENT ---
+    # --- 5. ENREGISTREMENT LOCAL ---
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
     print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via Mosttechs ({len(json_data)} liens valides indexés sur 15 jours).")
+    print(f"[Diagnostic] Nombre de nouveaux liens détectés : {nouveaux_liens_detectes}")
+
+    # --- 7. EXPORTATION NOTIFICATION & ENVOI PUSH DIRECT ---
+    if nouveaux_liens_detectes > 0:
+        try:
+            from firebase_admin import messaging
             
-else:
-    print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
+            # 1. Écriture de l'historique anonyme dans la collection Firestore commune
+            db.collection("notifications").add({
+                "title": "🎩 Monopoly Reward ! 🎁",
+                "body": "New free dice have just been added !",
+                "nom_du_jeu": "monopoly_go",
+                "created_at": firestore.SERVER_TIMESTAMP
+            })
+            print("[Firebase] Enregistrement d'historique créé pour Monopoly Go.")
+
+            # 2. Propulsion du signal direct vers le canal de diffusion
+            message = messaging.Message(
+                notification=messaging.Notification(
+                    title="🎩 Monopoly Reward ! 🎁",
+                    body="New free dice have just been added !"
+                ),
+                topic="monopoly_go"  # Canal écouté par votre application
+            )
+            
+            response = messaging.send(message)
