@@ -1,74 +1,38 @@
 [
     {
-        "date_scraping": "02/10/2026 @ 16:10",
-        "date_scraping1": "02/10/2026 @ 16:10",
+        "date_scraping": "07/10/2026 @ 08:59",
+        "date_scraping1": "07/10/2026 @ 08:59",
+        "date": "07/10/2026",
+        "heure": "08:59",
+        "recompense": "25 Dés gratuits",
+        "lienurl": "https://mply.io/KIH9kgK6obo",
+        "badge": "NEW"
+    },
+    {
+        "date_scraping": "07/10/2026 @ 08:59",
+        "date_scraping1": "06/10/2026 @ 08:59",
+        "date": "06/10/2026",
+        "heure": "08:59",
+        "recompense": "McDonald’s Fry Shield Skin",
+        "lienurl": "https://mply.io/eqQcaP1kbUU",
+        "badge": "NEW"
+    },
+    {
+        "date_scraping": "07/10/2026 @ 08:59",
+        "date_scraping1": "02/10/2026 @ 08:59",
         "date": "02/10/2026",
-        "heure": "16:10",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord2034358298?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
+        "heure": "08:59",
+        "recompense": "25 Dés gratuits",
+        "lienurl": "https://mply.io/FgtW3VDAiQM",
+        "badge": "NEW"
     },
     {
         "date_scraping": "01/10/2026 @ 20:11",
         "date_scraping1": "01/10/2026 @ 20:11",
         "date": "01/10/2026",
         "heure": "20:11",
-        "recompense": "Dés gratuits",
+        "recompense": "25 Dés gratuits",
         "lienurl": "https://mply.io/FNPM-ZJexq0",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:38",
-        "date_scraping1": "30/09/2026 @ 17:38",
-        "date": "30/09/2026",
-        "heure": "17:38",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord_30Sept_304394?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:38",
-        "date_scraping1": "28/09/2026 @ 17:38",
-        "date": "28/09/2026",
-        "heure": "17:38",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord_28sept_398493?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:48",
-        "date_scraping1": "25/09/2026 @ 17:48",
-        "date": "25/09/2026",
-        "heure": "17:48",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord_25Sept_3943948?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:48",
-        "date_scraping1": "25/09/2026 @ 17:48",
-        "date": "25/09/2026",
-        "heure": "17:48",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/YTCommunity_Sept26_Week4_sdljfnaspf?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:48",
-        "date_scraping1": "24/09/2026 @ 17:48",
-        "date": "24/09/2026",
-        "heure": "17:48",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord_24Sept_29833948?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
-        "badge": ""
-    },
-    {
-        "date_scraping": "01/10/2026 @ 17:48",
-        "date_scraping1": "23/09/2026 @ 17:48",
-        "date": "23/09/2026",
-        "heure": "17:48",
-        "recompense": "Dés gratuits",
-        "lienurl": "https://2tdd.adj.st/reward-link/Discord_23Sept_304930?adjust_t=i2f8o2i_4btbvwg&adjust_deeplink_js=1",
         "badge": ""
     }
 ]
