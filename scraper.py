@@ -215,3 +215,10 @@ if status_code == 200:
             )
             
             response = messaging.send(message)
+            print(f"[Firebase Push] Notification propulsée en direct avec succès ! (ID: {response})")
+            
+        except Exception as e:
+            print(f"[Firebase] [Erreur] Impossible d'écrire ou d'envoyer l'alerte push direct : {e}")
+            
+else:
+    print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
