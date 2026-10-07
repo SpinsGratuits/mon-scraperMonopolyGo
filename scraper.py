@@ -70,7 +70,7 @@ if status_code == 200:
         # On parcourt chaque ligne du tableau (en sautant l'en-tête)
         lignes = tableau.find_all("tr")[1:]
         
-         for ligne in reversed(lignes):
+        for ligne in reversed(lignes):
             cellules = ligne.find_all("td")
             if len(cellules) >= 3:
                 # 1. Extraction et nettoyage de la date/heure
@@ -139,7 +139,6 @@ if status_code == 200:
                             "badge": "NEW" 
                         })
 
-    # Si le tableau n'a rien donné, on garde l'historique
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
