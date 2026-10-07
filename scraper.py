@@ -70,7 +70,7 @@ if status_code == 200:
         # On parcourt chaque ligne du tableau (en sautant l'en-tête)
         lignes = tableau.find_all("tr")[1:]
         
-        for ligne inversely in lignes:
+         for ligne in reversed(lignes):
             cellules = ligne.find_all("td")
             if len(cellules) >= 3:
                 # 1. Extraction et nettoyage de la date/heure
