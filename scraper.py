@@ -11,14 +11,6 @@ from firebase_admin import credentials, firestore
 url = "https://gamewave.fr/monopoly-go/monopoly-go-liens-des-lancers-de-de-et-d-argent-gratuits/"
 filename = "scrapmonopolygo.json"
 
-# Tableau de conversion des mois textuels français pour Gamewave
-mois_fr_to_num = {
-    "janvier": "01", "fevrier": "02", "février": "02", "mars": "03", 
-    "avril": "04", "mai": "05", "juin": "06", "juillet": "07", 
-    "aout": "08", "août": "08", "septembre": "09", "octobre": "10", 
-    "novembre": "11", "decembre": "12", "décembre": "12"
-}
-
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
@@ -71,79 +63,83 @@ if status_code == 200:
     liens_visites_session = set()
     nouveaux_liens_detectes = 0
     
-    # CORRECTION STRUCTURE HTML : Ciblage du wrapper principal de l'article sur Gamewave
-    entry_content = soup.find(class_="app-article-content")
-    if not entry_content:
-        entry_content = soup.find("article")
-    if not entry_content:
-        entry_content = soup
-        
-    current_date_str = now.strftime("%d/%m/%Y")
+    # 🔍 RECHERCHE DU TABLEAU DES LIENS (Spécifique à Gamewave)
+    tableau = soup.find("table")
     
-    # Parcours des éléments de texte
-    for element in entry_content.find_all(["p", "li", "strong", "h3"]):
-        text_ligne = element.get_text().strip().lower()
+    if tableau:
+        # On parcourt chaque ligne du tableau (en sautant l'en-tête)
+        lignes = tableau.find_all("tr")[1:]
         
-        # CORRECTION REGEX DATE : Détection du format "7 octobre" ou "07 octobre 2026" en français
-        match_date = re.search(r'(\d{1,2})\s+([a-zéû]+)(\s+\d{4})?', text_ligne)
-        if match_date and not element.find("a"):
-            nom_mois = match_date.group(2).strip()
-            if nom_mois in mois_fr_to_num:
-                jour = match_date.group(1).zfill(2)
-                num_mois = mois_fr_to_num[nom_mois]
-                annee = match_date.group(3).strip() if match_date.group(3) else str(now.year)
-                current_date_str = f"{jour}/{num_mois}/{annee}"
-                continue
-            
-        links = element.find_all("a", href=True)
-        for link in links:
-            href = link["href"].strip()
-            
-            if href.startswith("/") or any(p in href.lower() for p in ["t.me", "telegram.me", "reddit", "twitter.com", "facebook.com", "whatsapp", "pinterest"]):
-                continue
+        for ligne inversely in lignes:
+            cellules = ligne.find_all("td")
+            if len(cellules) >= 3:
+                # 1. Extraction et nettoyage de la date/heure
+                texte_date = cellules[0].get_text().strip().lower()
                 
-            keywords = ["scope.ly", "monopolygo", "adj.st", "mply.io", "t.co", "bit.ly"]
-            if any(key in href.lower() for key in keywords):
-                
-                if href in liens_visites_session:
-                    continue
-                liens_visites_session.add(href)
-                
-                type_recompense = "Dés gratuits"
-                
-                if href in anciens_liens:
-                    date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
-                    badge_actuel = ""
-                    
-                    try:
-                        date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
-                        if now - date_premier_scraping < timedelta(hours=6):
-                            badge_actuel = "NEW"
-                    except:
-                        badge_actuel = anciens_liens[href].get("badge", "")
-
-                    json_data.append({
-                        "date_scraping": date_premier_scraping_str, 
-                        "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
-                        "date": current_date_str,  
-                        "heure": anciens_liens[href].get("heure", "00:00"),
-                        "recompense": anciens_liens[href].get("recompense", type_recompense), 
-                        "lienurl": href,
-                        "badge": badge_actuel
-                    })
+                # Gestion du texte "aujourd'hui à 08:00"
+                if "aujourd" in texte_date:
+                    current_date_str = now.strftime("%d/%m/%Y")
                 else:
-                    nouveaux_liens_detectes += 1
-                    date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
-                    json_data.append({
-                        "date_scraping": date_now_str, 
-                        "date_scraping1": date_scraping1_combinee,
-                        "date": current_date_str,  
-                        "heure": heure_actuelle_str,
-                        "recompense": type_recompense, 
-                        "lienurl": href,
-                        "badge": "NEW" 
-                    })
+                    # Extraction du format DD/MM/YYYY dans la cellule
+                    match_date = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', texte_date)
+                    if match_date:
+                        jour = match_date.group(1).zfill(2)
+                        mois = match_date.group(2).zfill(2)
+                        annee = match_date.group(3)
+                        current_date_str = f"{jour}/{mois}/{annee}"
+                    else:
+                        current_date_str = now.strftime("%d/%m/%Y")
+                
+                # 2. Extraction du type de récompense
+                type_recompense = cellules[1].get_text().strip()
+                if not type_recompense:
+                    type_recompense = "Dés gratuits"
+                
+                # 3. Extraction du lien cliquable dans la 3ème colonne
+                lien_tag = cellules[2].find("a", href=True)
+                if lien_tag:
+                    href = lien_tag["href"].strip()
+                    
+                    # Sécurité anti-doublon de session
+                    if href in liens_visites_session:
+                        continue
+                    liens_visites_session.add(href)
+                    
+                    # --- STRATÉGIE DE CONSERVATION / AJOUT DE BADGE ---
+                    if href in anciens_liens:
+                        date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
+                        badge_actuel = ""
+                        
+                        try:
+                            date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
+                            if now - date_premier_scraping < timedelta(hours=6):
+                                badge_actuel = "NEW"
+                        except:
+                            badge_actuel = anciens_liens[href].get("badge", "")
 
+                        json_data.append({
+                            "date_scraping": date_premier_scraping_str, 
+                            "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
+                            "date": current_date_str,  
+                            "heure": anciens_liens[href].get("heure", "00:00"),
+                            "recompense": type_recompense, 
+                            "lienurl": href,
+                            "badge": badge_actuel
+                        })
+                    else:
+                        nouveaux_liens_detectes += 1
+                        date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
+                        json_data.append({
+                            "date_scraping": date_now_str, 
+                            "date_scraping1": date_scraping1_combinee,
+                            "date": current_date_str,  
+                            "heure": heure_actuelle_str,
+                            "recompense": type_recompense, 
+                            "lienurl": href,
+                            "badge": "NEW" 
+                        })
+
+    # Si le tableau n'a rien donné, on garde l'historique
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
@@ -158,7 +154,7 @@ if status_code == 200:
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via Gamewave ({len(json_data)} liens valides).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via le tableau Gamewave ({len(json_data)} liens indexés).")
     print(f"[Diagnostic] Nombre de nouveaux liens détectés : {nouveaux_liens_detectes}")
 
     # --- 7. NOTIFICATION FIREBASE ---
