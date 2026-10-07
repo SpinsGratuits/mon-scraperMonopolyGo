@@ -8,14 +8,20 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 # --- 1. CONFIGURATION ---
-url = "https://gamewave.fr/monopoly-go/monopoly-go-liens-des-lancers-de-de-et-d-argent-gratuits/"
+url = "https://gamewave.fr/monopoly-go/monopoly-go-liens-des-lancers-de-de-et-d-argent-gratuits/r"
 filename = "scrapmonopolygo.json"
+
+# Tableau de conversion des mois textuels français pour Gamewave
+mois_fr_to_num = {
+    "janvier": "01", "fevrier": "02", "février": "02", "mars": "03", 
+    "avril": "04", "mai": "05", "juin": "06", "juillet": "07", 
+    "aout": "08", "août": "08", "septembre": "09", "octobre": "10", 
+    "novembre": "11", "decembre": "12", "décembre": "12"
+}
 
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
-
-# MODIFICATION : Passage du seuil limite de conservation à 15 jours glissants
 limite_conservation = now - timedelta(days=15)
 
 # --- 1B. INITIALISATION FIREBASE ---
@@ -23,7 +29,6 @@ firebase_key_raw = os.environ.get('FIREBASE_KEY')
 if not firebase_key_raw:
     raise ValueError("Le secret FIREBASE_KEY est introuvable dans l'environnement.")
 
-# Sécurité multi-script pour éviter les plantages lors d'exécutions simultanées
 if not firebase_admin._apps:
     cred_json = json.loads(firebase_key_raw)
     cred = credentials.Certificate(cred_json)
@@ -31,7 +36,7 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# --- 2. CHARGEMENT & NETTOYAGE DE L'HISTORIQUE ---
+# --- 2. CHARGEMENT DE L'HISTORIQUE ---
 anciens_liens = {}
 if os.path.exists(filename):
     try:
@@ -42,7 +47,6 @@ if os.path.exists(filename):
                     if "lienurl" in item:
                         try:
                             date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
-                            # Seuls les liens de moins de 15 jours sont conservés au démarrage
                             if date_objet >= limite_conservation:
                                 anciens_liens[item["lienurl"]] = item
                         except:
@@ -50,7 +54,6 @@ if os.path.exists(filename):
     except Exception as e:
         print(f"[Attention] Impossible de lire l'historique JSON : {e}")
 
-# Client anti-bot Cloudflare
 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
 try:
@@ -65,53 +68,42 @@ except Exception as e:
 if status_code == 200:
     soup = BeautifulSoup(html_text, "html.parser")
     json_data = []
-    liens_visites_session = set()  # Optimisation de recherche anti-doublon super rapide
-    nouveaux_liens_detectes = 0  # Compteur dédié au déclenchement des pushs
+    liens_visites_session = set()
+    nouveaux_liens_detectes = 0
     
-    entry_content = soup.find(class_="entry-content")
+    # CORRECTION STRUCTURE HTML : Ciblage du wrapper principal de l'article sur Gamewave
+    entry_content = soup.find(class_="app-article-content")
+    if not entry_content:
+        entry_content = soup.find("article")
     if not entry_content:
         entry_content = soup
         
-    # --- 3. PARCOURS CHRONOLOGIQUE DES LIGNES ---
-    for element in entry_content.find_all(["p", "li"]):
-        links = element.find_all("a", href=True)
-        
-        if not links:
-            continue
-            
+    current_date_str = now.strftime("%d/%m/%Y")
+    
+    # Parcours des éléments de texte
+    for element in entry_content.find_all(["p", "li", "strong", "h3"]):
         text_ligne = element.get_text().strip().lower()
         
-        # REGEX MONOPOLY GO : Recherche d'une date au format DD.M.YYYY ou D.M.YYYY dans la ligne
-        match_date = re.search(r'(\d{1,2})[\s./](\d{1,2})[\s./](\d{4})', text_ligne)
-        
-        if match_date:
-            jour = match_date.group(1).zfill(2)
-            mois = match_date.group(2).zfill(2)
-            annee = match_date.group(3)
-            current_date_str = f"{jour}/{mois}/{annee}"
-        else:
-            current_date_str = now.strftime("%d/%m/%Y")
+        # CORRECTION REGEX DATE : Détection du format "7 octobre" ou "07 octobre 2026" en français
+        match_date = re.search(r'(\d{1,2})\s+([a-zéû]+)(\s+\d{4})?', text_ligne)
+        if match_date and not element.find("a"):
+            nom_mois = match_date.group(2).strip()
+            if nom_mois in mois_fr_to_num:
+                jour = match_date.group(1).zfill(2)
+                num_mois = mois_fr_to_num[nom_mois]
+                annee = match_date.group(3).strip() if match_date.group(3) else str(now.year)
+                current_date_str = f"{jour}/{num_mois}/{annee}"
+                continue
             
+        links = element.find_all("a", href=True)
         for link in links:
             href = link["href"].strip()
             
-            # Filtres d'exclusions standards (Inclusion des exclusions Reddit)
-            if href.startswith("/") or "t.me" in href.lower() or "telegram.me" in href.lower() or "reddit" in href.lower():
-                continue
-            if any(p in href.lower() for p in ["twitter.com", "facebook.com", "whatsapp", "pinterest", "reddit.com"]):
+            if href.startswith("/") or any(p in href.lower() for p in ["t.me", "telegram.me", "reddit", "twitter.com", "facebook.com", "whatsapp", "pinterest"]):
                 continue
                 
-            # Mots-clés de redirection officiels Monopoly Go (Ajout de mply.io)
             keywords = ["scope.ly", "monopolygo", "adj.st", "mply.io", "t.co", "bit.ly"]
             if any(key in href.lower() for key in keywords):
-                
-                try:
-                    date_objet = datetime.strptime(current_date_str, "%d/%m/%Y")
-                    # Ignore le lien s'il a plus de 15 jours sur le site
-                    if date_objet < limite_conservation:
-                        continue  
-                except:
-                    pass
                 
                 if href in liens_visites_session:
                     continue
@@ -119,47 +111,27 @@ if status_code == 200:
                 
                 type_recompense = "Dés gratuits"
                 
-                # --- STRATÉGIE DE RECONSTITUTION : PRIORITÉ AU PLUS RÉCENT ---
                 if href in anciens_liens:
+                    date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
+                    badge_actuel = ""
+                    
                     try:
-                        ancienne_date = datetime.strptime(anciens_liens[href].get("date", ""), "%d/%m/%Y")
-                        nouvelle_date = datetime.strptime(current_date_str, "%d/%m/%Y")
-                        
-                        # Si le lien est réaffiché sur le site à une date plus récente
-                        if nouvelle_date > ancienne_date:
-                            date_scraping_finale = date_now_str
-                            date_scraping1_finale = f"{current_date_str} @ {heure_actuelle_str}"
-                            date_finale = current_date_str
-                            heure_finale = heure_actuelle_str
+                        date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
+                        if now - date_premier_scraping < timedelta(hours=6):
                             badge_actuel = "NEW"
-                        else:
-                            # Sinon on conserve les informations de l'historique
-                            date_scraping_finale = anciens_liens[href].get("date_scraping", date_now_str)
-                            date_scraping1_finale = anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}")
-                            date_finale = anciens_liens[href].get("date", current_date_str)
-                            heure_finale = anciens_liens[href].get("heure", "00:00")
-                            
-                            # Contrôle de maintien du badge NEW pendant 6 heures maximum
-                            date_premier_scraping = datetime.strptime(date_scraping_finale, "%d/%m/%Y @ %H:%M")
-                            badge_actuel = "NEW" if now - date_premier_scraping < timedelta(hours=6) else ""
                     except:
-                        date_scraping_finale = anciens_liens[href].get("date_scraping", date_now_str)
-                        date_scraping1_finale = anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}")
-                        date_finale = current_date_str
-                        heure_finale = anciens_liens[href].get("heure", "00:00")
                         badge_actuel = anciens_liens[href].get("badge", "")
 
                     json_data.append({
-                        "date_scraping": date_scraping_finale, 
-                        "date_scraping1": date_scraping1_finale,
-                        "date": date_finale,  
-                        "heure": heure_finale,
+                        "date_scraping": date_premier_scraping_str, 
+                        "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
+                        "date": current_date_str,  
+                        "heure": anciens_liens[href].get("heure", "00:00"),
                         "recompense": anciens_liens[href].get("recompense", type_recompense), 
                         "lienurl": href,
                         "badge": badge_actuel
                     })
                 else:
-                    # Nouveau lien trouvé pour la première fois lors de cette exécution
                     nouveaux_liens_detectes += 1
                     date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
                     json_data.append({
@@ -175,7 +147,6 @@ if status_code == 200:
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
-    # --- 4. TRI CHRONOLOGIQUE DES DATES DE PARUTION ---
     def extraire_cle_parution(item):
         try:
             return datetime.strptime(item.get("date", ""), "%d/%m/%Y").timestamp()
@@ -184,19 +155,17 @@ if status_code == 200:
 
     json_data.sort(key=extraire_cle_parution, reverse=True)
 
-    # --- 5. ENREGISTREMENT LOCAL ---
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via Mosttechs ({len(json_data)} liens valides indexés sur 15 jours).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via Gamewave ({len(json_data)} liens valides).")
     print(f"[Diagnostic] Nombre de nouveaux liens détectés : {nouveaux_liens_detectes}")
 
-    # --- 7. EXPORTATION NOTIFICATION & ENVOI PUSH DIRECT ---
+    # --- 7. NOTIFICATION FIREBASE ---
     if nouveaux_liens_detectes > 0:
         try:
             from firebase_admin import messaging
             
-            # 1. Écriture de l'historique anonyme dans la collection Firestore commune
             db.collection("notifications").add({
                 "title": "🎩 Monopoly Reward ! 🎁",
                 "body": "New free dice have just been added !",
@@ -205,13 +174,12 @@ if status_code == 200:
             })
             print("[Firebase] Enregistrement d'historique créé pour Monopoly Go.")
 
-            # 2. Propulsion du signal direct vers le canal de diffusion
             message = messaging.Message(
                 notification=messaging.Notification(
                     title="🎩 Monopoly Reward ! 🎁",
                     body="New free dice have just been added !"
                 ),
-                topic="monopoly_go"  # Canal écouté par votre application
+                topic="monopoly_go"
             )
             
             response = messaging.send(message)
@@ -221,4 +189,4 @@ if status_code == 200:
             print(f"[Firebase] [Erreur] Impossible d'écrire ou d'envoyer l'alerte push direct : {e}")
             
 else:
-    print(f"[Erreur] Échec de la communication réseau avec Mosttechs (Code {status_code}).")
+    print(f"[Erreur] Échec de la communication réseau avec Gamewave (Code {status_code}).")
