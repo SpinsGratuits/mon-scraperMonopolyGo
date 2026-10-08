@@ -14,7 +14,7 @@ filename = "scrapmonopolygo.json"
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
-limite_conservation = now - timedelta(days=15)
+limite_conservation = now - timedelta(days=5)
 
 # --- 1B. INITIALISATION FIREBASE ---
 firebase_key_raw = os.environ.get('FIREBASE_KEY')
