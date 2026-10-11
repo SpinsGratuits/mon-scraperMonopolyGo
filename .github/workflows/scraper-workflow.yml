@@ -3,7 +3,7 @@ name: Script Scraping Monopoly Go
 on:
   schedule:
     # Exécution à la minute 40 toutes les 4 heures (00:40, 04:40, 08:40, etc.)
-    - cron: '28 0,4,8,12,16,20 * * *'
+        - cron: '28 0,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21 * * *'
   workflow_dispatch:
 
 jobs:
