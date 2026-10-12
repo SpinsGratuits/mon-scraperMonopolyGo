@@ -42,7 +42,7 @@ if os.path.exists(filename):
                     if "lienurl" in item:
                         url_cle = item["lienurl"].strip()
                         try:
-                            # Extraction de la date pure pour la vérification de la limite
+                            # Extraction de la date pure pour la vérification de la limite de 5 jours
                             date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
                             if date_objet >= limite_conservation:
                                 anciens_liens[url_cle] = item
@@ -81,7 +81,7 @@ if status_code == 200:
             cellules = ligne.find_all("td")
             if len(cellules) >= 3:
                 
-                # 1. Extraction et formatage de la date du lien
+                # 1. Extraction et formatage de la date du lien affichée sur le site
                 texte_date = cellules[0].get_text().strip().lower()
                 
                 if "aujourd" in texte_date:
@@ -112,29 +112,32 @@ if status_code == 200:
                     
                     # --- CONFIGURATION LOGIQUE DU DOUBLON ---
                     if href in anciens_liens:
-                        # Le lien existe déjà : ON CONSERVE les données d'origine de l'historique JSON
+                        # CONDITION RESPECTÉE : On récupère l'élément d'origine de l'historique JSON
                         ancien_item = anciens_liens[href]
                         
-                        date_premier_scraping_str = ancien_item.get("date_scraping", date_now_str)
-                        badge_actuel = ""
+                        # On fige STRICTEMENT l'ancienne date de scraping initial
+                        date_premier_scraping_str = ancien_item.get("date_scraping")
+                        if not date_premier_scraping_str:
+                            date_premier_scraping_str = date_now_str
                         
-                        # Vérification de l'ancienneté du badge NEW (Retrait après 6 heures réelles)
+                        badge_actuel = ""
+                        # Gestion dynamique du badge NEW (Disparaît automatiquement après 6 heures réelles)
                         try:
                             date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
                             if now - date_premier_scraping < timedelta(hours=6):
                                 badge_actuel = "NEW"
                         except:
-                            badge_actuel = ancien_item.get("badge", "")
+                            badge_actuel = ""
 
-                        # Injection des anciennes données inchangées
+                        # Reconstruction en gardant TOUTES les anciennes valeurs figées
                         json_data.append({
-                            "date_scraping": date_premier_scraping_str, 
-                            "date_scraping1": "+".join([ancien_item.get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}").split("+")[0]]),
-                            "date": ancien_item.get("date", current_date_str),  
-                            "heure": ancien_item.get("heure", heure_actuelle_str),
+                            "date_scraping": date_premier_scraping_str,                         # <--- FIGÉ (Pas de mise à jour)
+                            "date_scraping1": ancien_item.get("date_scraping1", date_premier_scraping_str), # <--- FIGÉ (Pas de mise à jour)
+                            "date": ancien_item.get("date", current_date_str),                  # <--- FIGÉ
+                            "heure": ancien_item.get("heure", heure_actuelle_str),              # <--- FIGÉ
                             "recompense": type_recompense, 
                             "lienurl": href,
-                            "badge": badge_actuel
+                            "badge": badge_actuel                                               # S'efface au bout de 6h
                         })
                     else:
                         # VRAI NOUVEAU LIEN détecté pour la première fois
@@ -155,7 +158,7 @@ if status_code == 200:
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
-    # Tri décroissant du tableau final basé sur l'ancienneté de parution
+    # Tri décroissant du tableau final basé sur la date de parution
     def extraire_cle_parution(item):
         try:
             return datetime.strptime(item.get("date", ""), "%d/%m/%Y").timestamp()
@@ -171,7 +174,7 @@ if status_code == 200:
     print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens indexés).")
     print(f"[Diagnostic] Nombre de nouveaux liens détectés : {nouveaux_liens_detectes}")
 
-    # --- 4. ENVOI DES NOTIFICATIONS (Uniquement si de nouveaux liens existent) ---
+    # --- 4. ENVOI DES NOTIFICATIONS (Uniquement si de nouveaux liens réels existent) ---
     if nouveaux_liens_detectes > 0:
         try:
             from firebase_admin import messaging
