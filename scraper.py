@@ -17,7 +17,7 @@ heure_actuelle_str = now.strftime("%H:%M")
 
 # Normalisation à minuit pour le calcul des 5 jours (évite le bug d'expiration horaire)
 aujourdhui_minuit = now.replace(hour=0, minute=0, second=0, microsecond=0)
-limite_conservation = aujourdhui_minuit - timedelta(days=5) 
+limite_conservation = aujourdhui_minuit - timedelta(days=10) 
 
 # --- 1B. INITIALISATION FIREBASE ---
 firebase_key_raw = os.environ.get('FIREBASE_KEY')
