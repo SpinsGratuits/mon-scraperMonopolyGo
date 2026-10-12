@@ -15,7 +15,7 @@ now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
 
-# CORRECTION ICI : On compare des dates pures (à minuit) pour éviter le bug des heures
+# Normalisation à minuit pour le calcul des 5 jours (évite le bug d'expiration horaire)
 aujourdhui_minuit = now.replace(hour=0, minute=0, second=0, microsecond=0)
 limite_conservation = aujourdhui_minuit - timedelta(days=5) 
 
@@ -40,15 +40,19 @@ if os.path.exists(filename):
             if isinstance(data_chargee, list):
                 for item in data_chargee:
                     if "lienurl" in item:
+                        url_cle = item["lienurl"].strip()
                         try:
+                            # Extraction de la date pure pour la vérification de la limite
                             date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
                             if date_objet >= limite_conservation:
-                                anciens_liens[item["lienurl"]] = item
+                                anciens_liens[url_cle] = item
                         except:
-                            anciens_liens[item["lienurl"]] = item
+                            # En cas d'erreur de format, on conserve par sécurité
+                            anciens_liens[url_cle] = item
     except Exception as e:
         print(f"[Attention] Impossible de lire l'historique JSON : {e}")
 
+# --- 3. SCRAPING DU SITE ---
 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
 try:
@@ -66,24 +70,23 @@ if status_code == 200:
     liens_visites_session = set()
     nouveaux_liens_detectes = 0
     
-    # 🔍 RECHERCHE DU TABLEAU DES LIENS (Spécifique à Gamewave)
+    # Recherche du tableau des liens sur la page
     tableau = soup.find("table")
     
     if tableau:
-        # On parcourt chaque ligne du tableau (en sautant l'en-tête)
         lignes = tableau.find_all("tr")[1:]
         
+        # On parcourt du plus ancien au plus récent présent sur la page
         for ligne in reversed(lignes):
             cellules = ligne.find_all("td")
             if len(cellules) >= 3:
-                # 1. Extraction et nettoyage de la date/heure
+                
+                # 1. Extraction et formatage de la date du lien
                 texte_date = cellules[0].get_text().strip().lower()
                 
-                # Gestion du texte "aujourd'hui à 08:00"
                 if "aujourd" in texte_date:
                     current_date_str = now.strftime("%d/%m/%Y")
                 else:
-                    # Extraction du format DD/MM/YYYY dans la cellule
                     match_date = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', texte_date)
                     if match_date:
                         jour = match_date.group(1).zfill(2)
@@ -93,45 +96,51 @@ if status_code == 200:
                     else:
                         current_date_str = now.strftime("%d/%m/%Y")
                 
-                # 2. Extraction du type de récompense
-                type_recompense = cellules[1].get_text().strip()
+                # 2. Extraction et normalisation de la récompense (Apostrophes standardisés)
+                type_recompense = cellules[1].get_text().strip().replace("’", "'")
                 if not type_recompense:
                     type_recompense = "Dés gratuits"
                 
-                # 3. Extraction du lien cliquable dans la 3ème colonne
+                # 3. Traitement du lien URL
                 lien_tag = cellules[2].find("a", href=True)
                 if lien_tag:
                     href = lien_tag["href"].strip()
                     
-                    # Sécurité anti-doublon de session
                     if href in liens_visites_session:
                         continue
                     liens_visites_session.add(href)
                     
-                    # --- STRATÉGIE DE CONSERVATION / AJOUT DE BADGE ---
+                    # --- CONFIGURATION LOGIQUE DU DOUBLON ---
                     if href in anciens_liens:
-                        date_premier_scraping_str = anciens_liens[href].get("date_scraping", date_now_str)
+                        # Le lien existe déjà : ON CONSERVE les données d'origine de l'historique JSON
+                        ancien_item = anciens_liens[href]
+                        
+                        date_premier_scraping_str = ancien_item.get("date_scraping", date_now_str)
                         badge_actuel = ""
                         
+                        # Vérification de l'ancienneté du badge NEW (Retrait après 6 heures réelles)
                         try:
                             date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
                             if now - date_premier_scraping < timedelta(hours=6):
                                 badge_actuel = "NEW"
                         except:
-                            badge_actuel = anciens_liens[href].get("badge", "")
+                            badge_actuel = ancien_item.get("badge", "")
 
+                        # Injection des anciennes données inchangées
                         json_data.append({
                             "date_scraping": date_premier_scraping_str, 
-                            "date_scraping1": anciens_liens[href].get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}"),
-                            "date": current_date_str,  
-                            "heure": anciens_liens[href].get("heure", "00:00"),
+                            "date_scraping1": "+".join([ancien_item.get("date_scraping1", f"{current_date_str} @ {heure_actuelle_str}").split("+")[0]]),
+                            "date": ancien_item.get("date", current_date_str),  
+                            "heure": ancien_item.get("heure", heure_actuelle_str),
                             "recompense": type_recompense, 
                             "lienurl": href,
                             "badge": badge_actuel
                         })
                     else:
+                        # VRAI NOUVEAU LIEN détecté pour la première fois
                         nouveaux_liens_detectes += 1
                         date_scraping1_combinee = f"{current_date_str} @ {heure_actuelle_str}"
+                        
                         json_data.append({
                             "date_scraping": date_now_str, 
                             "date_scraping1": date_scraping1_combinee,
@@ -142,9 +151,11 @@ if status_code == 200:
                             "badge": "NEW" 
                         })
 
+    # Sécurité si le tableau est vide lors du scraping
     if not json_data and anciens_liens:
         json_data = list(anciens_liens.values())
 
+    # Tri décroissant du tableau final basé sur l'ancienneté de parution
     def extraire_cle_parution(item):
         try:
             return datetime.strptime(item.get("date", ""), "%d/%m/%Y").timestamp()
@@ -153,13 +164,14 @@ if status_code == 200:
 
     json_data.sort(key=extraire_cle_parution, reverse=True)
 
+    # Écriture propre du fichier JSON mis à jour
     with open(filename, mode="w", encoding="utf-8") as json_file:
         json.dump(json_data, json_file, indent=4, ensure_ascii=False)
         
-    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour via le tableau Gamewave ({len(json_data)} liens indexés).")
+    print(f"[Terminé] Fichier Monopoly Go {filename} mis à jour ({len(json_data)} liens indexés).")
     print(f"[Diagnostic] Nombre de nouveaux liens détectés : {nouveaux_liens_detectes}")
 
-    # --- 7. NOTIFICATION FIREBASE ---
+    # --- 4. ENVOI DES NOTIFICATIONS (Uniquement si de nouveaux liens existent) ---
     if nouveaux_liens_detectes > 0:
         try:
             from firebase_admin import messaging
