@@ -15,7 +15,7 @@ now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
 
-# Normalisation à minuit pour le calcul des 5 jours (évite le bug d'expiration horaire)
+# CORRECTION : Augmentation à 8 jours pour inclure le 06/10 et ne pas le supprimer de la mémoire
 aujourdhui_minuit = now.replace(hour=0, minute=0, second=0, microsecond=0)
 limite_conservation = aujourdhui_minuit - timedelta(days=10) 
 
@@ -42,7 +42,7 @@ if os.path.exists(filename):
                     if "lienurl" in item:
                         url_cle = item["lienurl"].strip()
                         try:
-                            # Extraction de la date pure pour la vérification de la limite de 5 jours
+                            # Extraction de la date pure pour la vérification de la limite de conservation
                             date_objet = datetime.strptime(item.get("date", ""), "%d/%m/%Y")
                             if date_objet >= limite_conservation:
                                 anciens_liens[url_cle] = item
@@ -112,16 +112,16 @@ if status_code == 200:
                     
                     # --- CONFIGURATION LOGIQUE DU DOUBLON ---
                     if href in anciens_liens:
-                        # CONDITION RESPECTÉE : On récupère l'élément d'origine de l'historique JSON
+                        # On récupère l'élément d'origine existant dans l'historique JSON
                         ancien_item = anciens_liens[href]
                         
-                        # On fige STRICTEMENT l'ancienne date de scraping initial
+                        # On fige STRICTEMENT l'ancienne date de scraping d'origine
                         date_premier_scraping_str = ancien_item.get("date_scraping")
                         if not date_premier_scraping_str:
                             date_premier_scraping_str = date_now_str
                         
                         badge_actuel = ""
-                        # Gestion dynamique du badge NEW (Disparaît automatiquement après 6 heures réelles)
+                        # Gestion du badge NEW (Disparaît automatiquement après 6 heures réelles)
                         try:
                             date_premier_scraping = datetime.strptime(date_premier_scraping_str, "%d/%m/%Y @ %H:%M")
                             if now - date_premier_scraping < timedelta(hours=6):
@@ -129,15 +129,15 @@ if status_code == 200:
                         except:
                             badge_actuel = ""
 
-                        # Reconstruction en gardant TOUTES les anciennes valeurs figées
+                        # Reconstruction en forçant la sauvegarde des données initiales du JSON
                         json_data.append({
-                            "date_scraping": date_premier_scraping_str,                         # <--- FIGÉ (Pas de mise à jour)
-                            "date_scraping1": ancien_item.get("date_scraping1", date_premier_scraping_str), # <--- FIGÉ (Pas de mise à jour)
-                            "date": ancien_item.get("date", current_date_str),                  # <--- FIGÉ
-                            "heure": ancien_item.get("heure", heure_actuelle_str),              # <--- FIGÉ
+                            "date_scraping": date_premier_scraping_str,
+                            "date_scraping1": ancien_item.get("date_scraping1", date_premier_scraping_str),
+                            "date": ancien_item.get("date", current_date_str),  
+                            "heure": ancien_item.get("heure", heure_actuelle_str),
                             "recompense": type_recompense, 
                             "lienurl": href,
-                            "badge": badge_actuel                                               # S'efface au bout de 6h
+                            "badge": badge_actuel
                         })
                     else:
                         # VRAI NOUVEAU LIEN détecté pour la première fois
@@ -180,7 +180,7 @@ if status_code == 200:
             from firebase_admin import messaging
             
             db.collection("notifications").add({
-                "title": "🎩 Board Reward ! 🎁",
+                "title": "🎩 Monopoly Reward ! 🎁",
                 "body": "New free dice have just been added !",
                 "nom_du_jeu": "monopoly_go",
                 "created_at": firestore.SERVER_TIMESTAMP
@@ -189,7 +189,7 @@ if status_code == 200:
 
             message = messaging.Message(
                 notification=messaging.Notification(
-                    title="🎩 Board Reward ! 🎁",
+                    title="🎩 Monopoly Reward ! 🎁",
                     body="New free dice have just been added !"
                 ),
                 topic="monopoly_go"
