@@ -14,7 +14,10 @@ filename = "scrapmonopolygo.json"
 now = datetime.now()
 date_now_str = now.strftime("%d/%m/%Y @ %H:%M")
 heure_actuelle_str = now.strftime("%H:%M")
-limite_conservation = now - timedelta(days=5)
+
+# CORRECTION ICI : On compare des dates pures (à minuit) pour éviter le bug des heures
+aujourdhui_minuit = now.replace(hour=0, minute=0, second=0, microsecond=0)
+limite_conservation = aujourdhui_minuit - timedelta(days=5) 
 
 # --- 1B. INITIALISATION FIREBASE ---
 firebase_key_raw = os.environ.get('FIREBASE_KEY')
@@ -162,7 +165,7 @@ if status_code == 200:
             from firebase_admin import messaging
             
             db.collection("notifications").add({
-                "title": "🎩 Monopoly Reward ! 🎁",
+                "title": "🎩 Board Reward ! 🎁",
                 "body": "New free dice have just been added !",
                 "nom_du_jeu": "monopoly_go",
                 "created_at": firestore.SERVER_TIMESTAMP
@@ -171,7 +174,7 @@ if status_code == 200:
 
             message = messaging.Message(
                 notification=messaging.Notification(
-                    title="🎩 Monopoly Reward ! 🎁",
+                    title="🎩 Board Reward ! 🎁",
                     body="New free dice have just been added !"
                 ),
                 topic="monopoly_go"
